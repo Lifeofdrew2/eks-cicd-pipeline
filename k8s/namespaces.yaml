@@ -1,0 +1,16 @@
+# One-time bootstrap, applied by a cluster administrator (not by the pipeline).
+# The pipeline's IAM role only has edit rights *inside* these namespaces,
+# so it cannot create or delete namespaces itself.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-staging
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-production
+  labels:
+    pod-security.kubernetes.io/enforce: restricted

@@ -1,0 +1,7 @@
+region            = "eu-west-1"
+github_repository = "Lifeofdrew2/eks-cicd-pipeline"
+cluster_name      = "demo-platform-dev"
+ecr_repository    = "demo-platform/demo-api"
+
+# Set to false if your account already has the token.actions.githubusercontent.com provider
+create_oidc_provider = true

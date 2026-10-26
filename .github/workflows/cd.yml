@@ -1,0 +1,132 @@
+# Continuous delivery: every merge to main is built once, scanned, pushed to
+# ECR with an immutable git-SHA tag, deployed to staging, verified, and then
+# promoted - the *same* image - to production after manual approval.
+name: cd
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "k8s/**", "scripts/**", ".github/workflows/cd.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required to request the GitHub OIDC token for AWS
+
+# Never run two deployments at once; queue them instead of cancelling.
+concurrency:
+  group: cd-main
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  EKS_CLUSTER: ${{ vars.EKS_CLUSTER_NAME }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
+
+  build:
+    name: Build, scan and push image
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image name
+        id: meta
+        run: |
+          echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "image=${{ steps.ecr.outputs.registry }}/${ECR_REPOSITORY}:${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: app
+          load: true
+          tags: ${{ steps.meta.outputs.image }}
+          # The app reports this version; the smoke test checks it matches the tag.
+          build-args: APP_VERSION=${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Scan BEFORE pushing so a vulnerable image never reaches the registry.
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.meta.outputs.image }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Push image
+        run: docker push "${{ steps.meta.outputs.image }}"
+
+      - name: Summary
+        run: echo "Pushed \`${{ steps.meta.outputs.image }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-k8s-tools
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Connect to EKS
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+      - name: Deploy, verify and auto-rollback on failure
+        run: ./scripts/deploy.sh staging "${{ needs.build.outputs.image }}"
+
+  deploy-production:
+    name: Deploy to production
+    needs: [build, deploy-staging]
+    runs-on: ubuntu-latest
+    # Required reviewers are configured on this GitHub environment, so the job
+    # pauses here until someone approves the promotion.
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-k8s-tools
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Connect to EKS
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+      - name: Deploy, verify and auto-rollback on failure
+        run: ./scripts/deploy.sh production "${{ needs.build.outputs.image }}"

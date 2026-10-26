@@ -1,0 +1,73 @@
+# Pull request checks. No AWS credentials are available to this workflow,
+# so code from a pull request can never push images or touch the cluster.
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: pytest -q --cov=main --cov-report=term-missing --cov-fail-under=80
+
+  image:
+    name: Build and scan image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.5.0
+        with:
+          dockerfile: app/Dockerfile
+      - uses: docker/setup-buildx-action@v4
+      - name: Build image (local only, not pushed)
+        uses: docker/build-push-action@v7
+        with:
+          context: app
+          load: true
+          tags: demo-api:pr-${{ github.event.pull_request.number }}
+          build-args: APP_VERSION=pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: demo-api:pr-${{ github.event.pull_request.number }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+  manifests:
+    name: Validate Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-k8s-tools
+      - name: Render and validate each environment
+        run: |
+          for env in staging production; do
+            echo "::group::$env"
+            kustomize build "k8s/overlays/$env" | kubeconform -strict -summary -kubernetes-version 1.33.0 -
+            echo "::endgroup::"
+          done

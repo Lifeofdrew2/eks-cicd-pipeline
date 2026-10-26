@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo-production
+resources:
+  - ../../base
+labels:
+  - pairs:
+      environment: production
+patches:
+  # Production gets more headroom per pod.
+  - target:
+      kind: Deployment
+      name: demo-api
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 200m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 384Mi
+images:
+  # The pipeline replaces this with <ecr-repo>:<git-sha> at deploy time.
+  - name: demo-api
+    newName: demo-api
+    newTag: set-by-pipeline

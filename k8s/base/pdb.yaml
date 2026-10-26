@@ -1,0 +1,11 @@
+# Keeps at least 2 replicas running during voluntary disruptions such as
+# node group upgrades or node drains.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: demo-api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demo-api

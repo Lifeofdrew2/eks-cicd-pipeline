@@ -1,0 +1,69 @@
+# Manual rollback. Either redeploy a specific earlier image tag (git SHA),
+# or leave the tag empty to return to the previous Kubernetes revision.
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to roll back
+        type: choice
+        options: [staging, production]
+        required: true
+      image_tag:
+        description: Image tag (7-char git SHA) to redeploy. Leave empty for the previous revision.
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cd-main
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Roll back ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EKS_CLUSTER: ${{ vars.EKS_CLUSTER_NAME }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      TARGET_ENV: ${{ inputs.environment }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-k8s-tools
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Connect to EKS
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+
+      - name: Redeploy a specific image
+        if: inputs.image_tag != ''
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          if ! [[ "$IMAGE_TAG" =~ ^[0-9a-f]{7}$ ]]; then
+            echo "image_tag must be a 7-character git SHA" >&2; exit 1
+          fi
+          # Fail early if the tag was never pushed.
+          aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$IMAGE_TAG" >/dev/null
+          ./scripts/deploy.sh "$TARGET_ENV" "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      - name: Return to the previous revision
+        if: inputs.image_tag == ''
+        run: |
+          ns="demo-$TARGET_ENV"
+          kubectl -n "$ns" rollout history deployment/demo-api
+          kubectl -n "$ns" rollout undo deployment/demo-api
+          kubectl -n "$ns" rollout status deployment/demo-api --timeout=5m
+          ./scripts/smoke-test.sh "$ns"
