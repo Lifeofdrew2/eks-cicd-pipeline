@@ -1,0 +1,63 @@
+# Offline validation output, captured by running ./scripts/verify.sh.
+# Recording environment: Linux, Python 3.13, OpenTofu 1.10 (Terraform-compatible) with
+# providers/modules from a local mirror (no registry access), kubeconform 0.6.7,
+# kustomize 5.6, hadolint 2.15, actionlint, Checkov. Reproduce: ./scripts/verify.sh
+verify.sh - eks-cicd-pipeline
+date:   2026-10-26T13:04:27Z
+commit: e07564d
+
+=== App: lint (ruff), unit tests with coverage gate >= 80% (pytest-cov)
+All checks passed!
+......                                                                   [100%]
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.13.17-final-0 _______________
+
+Name      Stmts   Miss  Cover   Missing
+---------------------------------------
+main.py      61      3    95%   85, 105-106
+---------------------------------------
+TOTAL        61      3    95%
+Required test coverage of 80% reached. Total coverage: 95.08%
+6 passed, 1 warning in 0.64s
+--> PASS
+
+=== Dockerfile lint (hadolint)
+--> PASS
+
+=== Kustomize overlays render and validate (K8s 1.33)
+--- staging
+Summary: 7 resources found parsing stdin - Valid: 7, Invalid: 0, Errors: 0, Skipped: 0
+--> PASS
+--- production
+Summary: 7 resources found parsing stdin - Valid: 7, Invalid: 0, Errors: 0, Skipped: 0
+--> PASS
+Summary: 2 resources found in 1 file - Valid: 2, Invalid: 0, Errors: 0, Skipped: 0
+--> PASS
+
+=== Pipeline image substitution (what deploy.sh does)
+      - image: 123456789012.dkr.ecr.eu-west-1.amazonaws.com/demo-platform/demo-api:abc1234
+    kubernetes.io/change-cause: deploy abc1234 run 1
+--> PASS
+
+=== Smoke test against a locally running app (expected version passes, wrong version fails)
+  PASS  liveness (/healthz -> 200)
+  PASS  readiness (/readyz -> 200)
+  PASS  list orders (/api/orders -> 200)
+  PASS  missing order (/api/orders/999 -> 404)
+  PASS  metrics (/metrics -> 200)
+  PASS  version (abc1234)
+--> PASS
+--> PASS (wrong version correctly rejected)
+
+=== GitHub OIDC Terraform: fmt + validate
+--> PASS
+Success! The configuration is valid.
+--> PASS
+
+=== Security scan: OIDC Terraform (checkov)
+Passed checks: 30, Failed checks: 0, Skipped checks: 0
+
+=== GitHub Actions workflows (actionlint)
+--> PASS
+
+RESULT: all checks passed

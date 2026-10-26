@@ -1,16 +1,18 @@
-# Pull request checks. No AWS credentials are available to this workflow,
-# so code from a pull request can never push images or touch the cluster.
+# Checks for pull requests and for main. No AWS credentials are available to
+# this workflow, so code from a pull request can never push images or touch the cluster.
 name: ci
 
 on:
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -46,14 +48,14 @@ jobs:
         with:
           context: app
           load: true
-          tags: demo-api:pr-${{ github.event.pull_request.number }}
-          build-args: APP_VERSION=pr-${{ github.event.pull_request.number }}
+          tags: demo-api:ci-${{ github.run_number }}
+          build-args: APP_VERSION=ci-${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Scan image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: demo-api:pr-${{ github.event.pull_request.number }}
+          image-ref: demo-api:ci-${{ github.run_number }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"

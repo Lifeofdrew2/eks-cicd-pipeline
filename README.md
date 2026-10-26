@@ -1,5 +1,7 @@
 # CI/CD Pipeline Automation for Amazon EKS
 
+[![ci](https://github.com/Lifeofdrew2/eks-cicd-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/Lifeofdrew2/eks-cicd-pipeline/actions/workflows/ci.yml) [![cd](https://github.com/Lifeofdrew2/eks-cicd-pipeline/actions/workflows/cd.yml/badge.svg)](https://github.com/Lifeofdrew2/eks-cicd-pipeline/actions/workflows/cd.yml)
+
 Automated build and deployment workflows using **GitHub Actions**, **Docker**,
 **Amazon ECR** and **Amazon EKS**. Every change is tested, scanned, packaged
 once as an immutable image, deployed to staging, verified, and promoted to

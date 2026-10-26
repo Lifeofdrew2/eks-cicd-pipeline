@@ -2,6 +2,8 @@
 
 ## Offline checks
 
+Raw output of the latest run: [evidence/offline-validation.txt](evidence/offline-validation.txt). Re-run any time with `./scripts/verify.sh`.
+
 | Check | Tool | Result |
 |---|---|---|
 | Unit tests (6) with coverage gate ≥ 80% | pytest + pytest-cov | ✅ 95% coverage |
