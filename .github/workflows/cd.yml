@@ -43,6 +43,8 @@ jobs:
   build:
     name: Build, scan and push image
     needs: test
+    # Skip cleanly until AWS is configured (see docs/setup.md), instead of failing.
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.meta.outputs.image }}
